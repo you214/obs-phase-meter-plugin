@@ -20,7 +20,7 @@ public:
 	std::vector<float> leftChannel;
 	std::vector<float> rightChannel;
 	bool enabled;
-	QMutex dataMutex; // データ保護用
+	mutable QMutex dataMutex; // データ保護用
 
 	AudioSource(const QString &n, const QColor &c) : name(n), color(c), enabled(true) {}
 };
@@ -35,6 +35,8 @@ public:
 	void addAudioSource(const QString &name, const QColor &color = Qt::green);
 	void removeAudioSource(const QString &name);
 	void updateAudioData(const QString &sourceName, const float *left, const float *right, size_t frames);
+	void refreshAudioSources();                   // 音声ソース一覧を更新
+	QStringList getAvailableAudioSources() const; // 利用可能な音声ソース一覧を取得
 
 protected:
 	void paintEvent(QPaintEvent *event) override;
@@ -60,7 +62,7 @@ private:
 
 	std::vector<std::unique_ptr<AudioSource>> m_audioSources;
 	QTimer *m_updateTimer;
-	QMutex m_sourcesMutex; // オーディオソース保護用
+	mutable QMutex m_sourcesMutex; // オーディオソース保護用
 	bool m_isDestroying;
 
 	// Phase meter specific

@@ -72,6 +72,10 @@ void PhaseMeterWidget::addAudioSource(const QString& name, const QColor& color) 
 			[this, name]() {
 				if (!m_isDestroying && m_sourceCombo) {
 					m_sourceCombo->addItem(name);
+
+					// デバッグ用：追加されたソースを確認
+					qDebug() << "Added audio source:" << name;
+					qDebug() << "Total sources in combo:" << m_sourceCombo->count();
 				}
 			},
 			Qt::QueuedConnection);
@@ -310,4 +314,33 @@ void PhaseMeterWidget::resizeEvent(QResizeEvent* event) {
 void PhaseMeterWidget::closeEvent(QCloseEvent *event) {
 	cleanup();
 	QWidget::closeEvent(event);
+}
+
+void PhaseMeterWidget::refreshAudioSources()
+{
+	if (m_isDestroying)
+		return;
+
+	// コンボボックスをクリア（"All Sources"以外）
+	while (m_sourceCombo->count() > 1) {
+		m_sourceCombo->removeItem(1);
+	}
+
+	// 現在の音声ソースを再追加
+	QMutexLocker locker(&m_sourcesMutex);
+	for (const auto &source : m_audioSources) {
+		m_sourceCombo->addItem(source->name);
+	}
+}
+
+QStringList PhaseMeterWidget::getAvailableAudioSources() const
+{
+	QStringList sources;
+	QMutexLocker locker(&m_sourcesMutex);
+
+	for (const auto &source : m_audioSources) {
+		sources.append(source->name);
+	}
+
+	return sources;
 }

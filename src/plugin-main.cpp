@@ -28,6 +28,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QPointer>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QRandomGenerator>
+#include <QTime>
 #include "phase-meter-dock.h"
 
 
@@ -38,6 +40,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-phase-meter", "en-US")
 static QPointer<PhaseMeterDock> phaseMeterDock = nullptr;
 static QMutex filterMutex;
 static QList<struct phase_meter_filter *> activeFilters;
+static bool moduleUnloading = false;
 
 // 音声データを取得するためのフィルタ
 struct phase_meter_filter {
@@ -48,6 +51,173 @@ struct phase_meter_filter {
 
 	phase_meter_filter() : context(nullptr), isDestroying(false) {}
 };
+
+
+// OBSのすべての音声ソースを取得してPhase Meterに追加
+static bool add_audio_source_enum(void *data, obs_source_t *source)
+{
+	PhaseMeterWidget *widget = static_cast<PhaseMeterWidget *>(data);
+
+	if (!source || !widget)
+		return true;
+
+	uint32_t flags = obs_source_get_output_flags(source);
+	if (flags & OBS_SOURCE_AUDIO) {
+		const char *name = obs_source_get_name(source);
+		if (name) {
+			QString sourceName = QString::fromUtf8(name);
+			// デスクトップ音声やマイクなどの音声ソースを追加
+			QRandomGenerator *rand = QRandomGenerator::global();
+			rand->seed(QTime::currentTime().msec());
+			widget->addAudioSource(sourceName, QColor::fromHsv(rand->generate() % 360, 255, 255));
+		}
+	}
+
+	return true;
+}
+
+// 音声データを監視するコールバック
+static void audio_capture_callback(void *data, obs_source_t *source, const struct audio_data *audio_data, bool muted)
+{
+	if (moduleUnloading || !data || !source || !audio_data || muted) {
+		return;
+	}
+
+	PhaseMeterWidget *widget = static_cast<PhaseMeterWidget *>(data);
+	const char *sourceName = obs_source_get_name(source);
+
+	if (!sourceName || audio_data->frames == 0) {
+		return;
+	}
+
+	// ステレオ音声データがあるかチェック
+	if (audio_data->data[0] && audio_data->data[1]) {
+		const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
+		const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
+
+		QString sourceNameQt = QString::fromUtf8(sourceName);
+		widget->updateAudioData(sourceNameQt, left, right, audio_data->frames);
+	}
+}
+
+// OBSのイベントハンドラ
+static void obs_event_handler(enum obs_frontend_event event, void *data)
+{
+	switch (event) {
+	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
+		// OBSの読み込み完了後に音声ソースを列挙
+		if (phaseMeterDock && !phaseMeterDock.isNull()) {
+			PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
+			if (widget) {
+				obs_enum_sources(add_audio_source_enum, widget);
+			}
+		}
+		break;
+	case OBS_FRONTEND_EVENT_EXIT:
+		moduleUnloading = true;
+		break;
+	default:
+		break;
+	}
+}
+
+// ソースが作成・削除された時のハンドラ
+static void source_create_handler(void *data, calldata_t *calldata)
+{
+	obs_source_t *source = static_cast<obs_source_t *>(calldata_ptr(calldata, "source"));
+	if (!source || moduleUnloading)
+		return;
+
+	uint32_t flags = obs_source_get_output_flags(source);
+	if (flags & OBS_SOURCE_AUDIO) {
+		if (phaseMeterDock && !phaseMeterDock.isNull()) {
+			PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
+			if (widget) {
+				const char *name = obs_source_get_name(source);
+				if (name) {
+					QString sourceName = QString::fromUtf8(name);
+					QRandomGenerator *rand = QRandomGenerator::global();
+					rand->seed(QTime::currentTime().msec());
+					widget->addAudioSource(sourceName,
+							       QColor::fromHsv(rand->generate() % 360, 255, 255));
+				}
+			}
+		}
+	}
+}
+
+static void source_destroy_handler(void *data, calldata_t *calldata)
+{
+	obs_source_t *source = static_cast<obs_source_t *>(calldata_ptr(calldata, "source"));
+	if (!source || moduleUnloading)
+		return;
+
+	if (phaseMeterDock && !phaseMeterDock.isNull()) {
+		PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
+		if (widget) {
+			const char *name = obs_source_get_name(source);
+			if (name) {
+				QString sourceName = QString::fromUtf8(name);
+				widget->removeAudioSource(sourceName);
+			}
+		}
+	}
+}
+
+
+// start_audio_monitoringのためのコールバック
+static bool add_monitoring_callback(void *data, obs_source_t *source)
+{
+	PhaseMeterWidget *widget = static_cast<PhaseMeterWidget *>(data);
+	uint32_t flags = obs_source_get_output_flags(source);
+
+	if (flags & OBS_SOURCE_AUDIO) {
+		obs_source_add_audio_capture_callback(source, audio_capture_callback, widget);
+	}
+	return true; // 列挙を続ける
+}
+
+// stop_audio_monitoringのためのコールバック
+static bool remove_monitoring_callback(void *data, obs_source_t *source)
+{
+	PhaseMeterWidget *widget = static_cast<PhaseMeterWidget *>(data);
+	uint32_t flags = obs_source_get_output_flags(source);
+
+	if (flags & OBS_SOURCE_AUDIO) {
+		// addした時と同じwidgetポインタを渡して、コールバックを正しく削除する
+		obs_source_remove_audio_capture_callback(source, audio_capture_callback, widget);
+	}
+	return true; // 列挙を続ける
+}
+
+// 音声監視の開始
+static void start_audio_monitoring()
+{
+	if (!phaseMeterDock || phaseMeterDock.isNull())
+		return;
+
+	PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
+	if (!widget)
+		return;
+
+	// すべての音声ソースに対してコールバックを呼び出し、監視を開始する
+	obs_enum_sources(add_monitoring_callback, widget);
+}
+
+// 音声監視の停止
+static void stop_audio_monitoring()
+{
+	if (!phaseMeterDock || phaseMeterDock.isNull())
+		return;
+
+	PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
+	if (!widget)
+		return;
+
+	// すべての音声ソースに対してコールバックを呼び出し、監視を停止する
+	obs_enum_sources(remove_monitoring_callback, widget);
+}
+
 
 static const char *phase_meter_filter_get_name(void *unused)
 {
@@ -163,11 +333,19 @@ static void cleanup_all_filters()
 
 bool obs_module_load(void)
 {
-	// フィルタを登録
-	obs_register_source(&phase_meter_filter_info);
+	// OBSイベントハンドラを登録
+	obs_frontend_add_event_callback(obs_event_handler, nullptr);
 
-	// メインウィンドウが準備できたらドックを作成
-	QTimer::singleShot(1000, []() {
+	// ソース作成・削除のシグナルハンドラを登録
+	signal_handler_t *core_signals = obs_get_signal_handler();
+	signal_handler_connect(core_signals, "source_create", source_create_handler, nullptr);
+	signal_handler_connect(core_signals, "source_destroy", source_destroy_handler, nullptr);
+
+	// 少し遅延してからドックを作成（OBSの初期化完了を待つ）
+	QTimer::singleShot(2000, []() {
+		if (moduleUnloading)
+			return;
+
 		QMainWindow *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 		if (mainWindow && phaseMeterDock.isNull()) {
 			phaseMeterDock = new PhaseMeterDock(mainWindow);
@@ -193,17 +371,49 @@ bool obs_module_load(void)
 						 }
 					 });
 
-			// ツールメニューに追加
-			QMenu *toolsMenu = nullptr;
-			for (QMenu *menu : mainWindow->menuBar()->findChildren<QMenu *>()) {
-				if (menu->title().contains("Tools") || menu->title().contains("ツール")) {
-					toolsMenu = menu;
-					break;
+			// ツールメニューまたはドックメニューに追加
+			QMenuBar *menuBar = mainWindow->menuBar();
+			if (menuBar) {
+				QMenu *viewMenu = nullptr;
+				QMenu *docksMenu = nullptr;
+
+				// View > Docks メニューを探す
+				for (QMenu *menu : menuBar->findChildren<QMenu *>()) {
+					QString title = menu->title().toLower();
+					if (title.contains("view") || title.contains("表示")) {
+						viewMenu = menu;
+						// Docksサブメニューを探す
+						for (QMenu *submenu : menu->findChildren<QMenu *>()) {
+							QString subTitle = submenu->title().toLower();
+							if (subTitle.contains("dock") || subTitle.contains("ドック")) {
+								docksMenu = submenu;
+								break;
+							}
+						}
+						break;
+					}
+				}
+
+				if (docksMenu) {
+					docksMenu->addAction(action);
+				} else if (viewMenu) {
+					viewMenu->addAction(action);
+				} else {
+					// フォールバック: 最初のメニューに追加
+					QList<QMenu *> menus = menuBar->findChildren<QMenu *>();
+					if (!menus.isEmpty()) {
+						menus.first()->addAction(action);
+					}
 				}
 			}
 
-			if (toolsMenu) {
-				toolsMenu->addAction(action);
+			// 音声ソースを列挙して追加
+			PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
+			if (widget) {
+				obs_enum_sources(add_audio_source_enum, widget);
+
+				// 音声監視を開始
+				QTimer::singleShot(1000, start_audio_monitoring);
 			}
 		}
 	});
@@ -213,17 +423,29 @@ bool obs_module_load(void)
 
 void obs_module_unload(void)
 {
-	// すべてのフィルタをクリーンアップ
-	cleanup_all_filters();
+	moduleUnloading = true;
+
+	// 音声監視を停止
+	stop_audio_monitoring();
+
+	// シグナルハンドラを切断
+	signal_handler_t *core_signals = obs_get_signal_handler();
+	signal_handler_disconnect(core_signals, "source_create", source_create_handler, nullptr);
+	signal_handler_disconnect(core_signals, "source_destroy", source_destroy_handler, nullptr);
+
+	// イベントハンドラを削除
+	obs_frontend_remove_event_callback(obs_event_handler, nullptr);
 
 	// ドックの削除
 	if (phaseMeterDock && !phaseMeterDock.isNull()) {
+		phaseMeterDock->hide();
 		phaseMeterDock->deleteLater();
 		phaseMeterDock = nullptr;
 	}
 
-	// Qtイベントループを少し回す
+	// イベントループを処理
 	if (QApplication::instance()) {
 		QApplication::processEvents();
+		QApplication::processEvents(); // 2回実行して確実に
 	}
 }
