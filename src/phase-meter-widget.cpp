@@ -6,16 +6,17 @@
 #include <QMutexLocker>
 #include <cmath>
 
-PhaseMeterWidget::PhaseMeterWidget(QWidget* parent)
-    : QWidget(parent)
-    , m_updateTimer(new QTimer(this))
+PhaseMeterWidget::PhaseMeterWidget(QWidget *parent)
+	: QWidget(parent),
+	  m_updateTimer(new QTimer(this)),
+	  m_isDestroying(false)
 {
-    setupUI();
-    
-    // 60FPSで更新
-    m_updateTimer->setInterval(16);
-    connect(m_updateTimer, &QTimer::timeout, this, &PhaseMeterWidget::updateDisplay);
-    m_updateTimer->start();
+	setupUI();
+
+	// 60FPSで更新
+	m_updateTimer->setInterval(16);
+	connect(m_updateTimer, &QTimer::timeout, this, &PhaseMeterWidget::updateDisplay);
+	m_updateTimer->start();
 }
 
 PhaseMeterWidget::~PhaseMeterWidget(){
@@ -130,21 +131,26 @@ void PhaseMeterWidget::updateAudioData(const QString& sourceName, const float* l
 }
 
 void PhaseMeterWidget::paintEvent(QPaintEvent* event) {
-	if (m_isDestroying)
-		return;
+  if (m_isDestroying) return;
+    
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    
+    QRect meterRect = rect();
+    if (m_controlLayout && m_controlLayout->geometry().isValid()) {
+        meterRect.setTop(m_controlLayout->geometry().bottom() + 10);
+    }
+    meterRect.adjust(10, 10, -10, -10);
+    
+    if (meterRect.isValid()) {
+        drawPhaseMeter(painter, meterRect);
+    }
+}
 
-	QPainter painter(this);
-	painter.setRenderHint(QPainter::Antialiasing);
-
-	QRect meterRect = rect();
-	if (m_controlLayout && m_controlLayout->geometry().isValid()) {
-		meterRect.setTop(m_controlLayout->geometry().bottom() + 10);
-	}
-	meterRect.adjust(10, 10, -10, -10);
-
-	if (meterRect.isValid()) {
-		drawPhaseMeter(painter, meterRect);
-	}
+void PhaseMeterWidget::updateDisplay() {
+    if (!m_isDestroying) {
+        update();
+    }
 }
 
 void PhaseMeterWidget::drawPhaseMeter(QPainter& painter, const QRect& rect) {
@@ -194,8 +200,6 @@ void PhaseMeterWidget::drawPhaseMeter(QPainter& painter, const QRect& rect) {
 		}
 	}
 }
-
-void PhaseMeterWidget::drawCorrelationMeter(QPainter &painter, const QRect &rect) {}
 
 void PhaseMeterWidget::drawAudioSource(QPainter& painter, const QPoint& center, int radius, const AudioSource& source) {
 	painter.setPen(QPen(source.color, 2));
@@ -285,7 +289,8 @@ void PhaseMeterWidget::onColorButtonClicked()
 	}
 }
 
-void PhaseMeterWidget::cleanup() {
+void PhaseMeterWidget::cleanup()
+{
 	m_isDestroying = true;
 
 	if (m_updateTimer) {
@@ -296,11 +301,6 @@ void PhaseMeterWidget::cleanup() {
 	m_audioSources.clear();
 }
 
-void PhaseMeterWidget::updateDisplay() {
-	if (!m_isDestroying) {
-		update();
-	}
-}
 
 void PhaseMeterWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);

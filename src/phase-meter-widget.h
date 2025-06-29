@@ -2,7 +2,6 @@
 
 #include <QWidget>
 #include <QTimer>
-#include <QMutex>
 #include <QPainter>
 #include <QComboBox>
 #include <QColorDialog>
@@ -10,10 +9,10 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMutex>
+#include <QMutexLocker>
 #include <vector>
 #include <memory>
-
-
 class AudioSource {
 public:
 	QString name;
@@ -21,37 +20,10 @@ public:
 	std::vector<float> leftChannel;
 	std::vector<float> rightChannel;
 	bool enabled;
-	mutable QMutex dataMutex; // データ保護用（mutableを追加）
+	QMutex dataMutex; // データ保護用
 
 	AudioSource(const QString &n, const QColor &c) : name(n), color(c), enabled(true) {}
-
-	// コピーコンストラクタとコピー代入演算子を削除（QMutexのため）
-	AudioSource(const AudioSource &) = delete;
-	AudioSource &operator=(const AudioSource &) = delete;
-
-	// ムーブコンストラクタとムーブ代入演算子
-	AudioSource(AudioSource &&other) noexcept
-		: name(std::move(other.name)),
-		  color(std::move(other.color)),
-		  leftChannel(std::move(other.leftChannel)),
-		  rightChannel(std::move(other.rightChannel)),
-		  enabled(other.enabled)
-	{
-	}
-
-	AudioSource &operator=(AudioSource &&other) noexcept
-	{
-		if (this != &other) {
-			name = std::move(other.name);
-			color = std::move(other.color);
-			leftChannel = std::move(other.leftChannel);
-			rightChannel = std::move(other.rightChannel);
-			enabled = other.enabled;
-		}
-		return *this;
-	}
 };
-
 
 class PhaseMeterWidget : public QWidget {
 	Q_OBJECT
@@ -77,7 +49,6 @@ private slots:
 private:
 	void setupUI();
 	void drawPhaseMeter(QPainter &painter, const QRect &rect);
-	void drawCorrelationMeter(QPainter &painter, const QRect &rect);
 	void drawAudioSource(QPainter &painter, const QPoint &center, int radius, const AudioSource &source);
 	void cleanup();
 
@@ -91,7 +62,7 @@ private:
 	QTimer *m_updateTimer;
 	QMutex m_sourcesMutex; // オーディオソース保護用
 	bool m_isDestroying;
-    
+
 	// Phase meter specific
 	static constexpr int PHASE_METER_SIZE = 200;
 	static constexpr int SAMPLE_RATE = 48000;

@@ -12,4 +12,9 @@ PhaseMeterDock::PhaseMeterDock(QWidget* parent)
     setAttribute(Qt::WA_DeleteOnClose, false);
 }
 
-PhaseMeterDock::~PhaseMeterDock() = default;
+PhaseMeterDock::~PhaseMeterDock() {
+	if (m_phaseMeterWidget) {
+		m_phaseMeterWidget->deleteLater();
+		m_phaseMeterWidget = nullptr;
+	}
+}
