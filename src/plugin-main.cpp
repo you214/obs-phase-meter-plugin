@@ -30,6 +30,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QMutexLocker>
 #include <QRandomGenerator>
 #include <QTime>
+#include <QThread>
 #include "phase-meter-dock.h"
 
 
@@ -42,6 +43,10 @@ static QMutex audioMutex;
 static bool moduleUnloading = false;
 static bool audioMonitoringActive = false;
 
+static QTimer *updateTimer = nullptr;
+static QMutex pendingDataMutex;
+static QHash<QString, QPair<QVector<float>, QVector<float>>> pendingAudioData;
+
 // 音声データを監視するコールバック
 static void audio_capture_callback(void *data, obs_source_t *source, const struct audio_data *audio_data, bool muted)
 {
@@ -49,33 +54,58 @@ static void audio_capture_callback(void *data, obs_source_t *source, const struc
 		return;
 	}
 
-	QMutexLocker locker(&audioMutex);
+  // 描画処理を一時的にコメントアウト
+	/*
+    QMutexLocker locker(&audioMutex);
+    
+    PhaseMeterWidget *widget = static_cast<PhaseMeterWidget *>(data);
+    if (!widget) {
+        return;
+    }
 
-	PhaseMeterWidget *widget = static_cast<PhaseMeterWidget *>(data);
-	if (!widget) {
-		return;
+    const char *sourceName = obs_source_get_name(source);
+    if (!sourceName || audio_data->frames == 0) {
+        return;
+    }
+
+    // ステレオ音声データがあるかチェック
+    if (audio_data->data[0] && audio_data->data[1]) {
+        const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
+        const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
+
+        QString sourceNameQt = QString::fromUtf8(sourceName);
+        
+        // メインスレッドで安全に更新
+        QMetaObject::invokeMethod(widget, [widget, sourceNameQt, left, right, audio_data]() {
+            widget->updateAudioData(sourceNameQt, left, right, audio_data->frames);
+        }, Qt::QueuedConnection);
+    }
+    */
+
+	// デバッグ用：音声データが来ていることだけを確認
+	static int callback_count = 0;
+	if (++callback_count % 1000 == 0) { // 1000回に1回だけログ出力
+		blog(LOG_DEBUG, "Phase Meter: Audio callback called %d times", callback_count);
 	}
-
-	const char *sourceName = obs_source_get_name(source);
-	if (!sourceName || audio_data->frames == 0) {
-		return;
-	}
-
-	// ステレオ音声データがあるかチェック
-	if (audio_data->data[0] && audio_data->data[1]) {
-		const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
-		const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
-
-		QString sourceNameQt = QString::fromUtf8(sourceName);
-
-		// メインスレッドで安全に更新
-		QMetaObject::invokeMethod(
-			widget,
-			[widget, sourceNameQt, left, right, audio_data]() {
-				widget->updateAudioData(sourceNameQt, left, right, audio_data->frames);
-			},
-			Qt::QueuedConnection);
-	}
+	
+    // 後で有効にする場合の処理（現在はコメントアウト）
+    //if (audio_data->data[0] && audio_data->data[1] && audio_data->frames > 0) {
+    //    const char *sourceName = obs_source_get_name(source);
+    //    if (sourceName) {
+    //        QMutexLocker locker(&pendingDataMutex);
+    //        QString sourceNameQt = QString::fromUtf8(sourceName);
+    //        
+    //        // データをキューに保存（最新のもののみ保持）
+    //        const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
+    //        const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
+    //        
+    //        QVector<float> leftData(left, left + audio_data->frames);
+    //        QVector<float> rightData(right, right + audio_data->frames);
+    //        
+    //        pendingAudioData[sourceNameQt] = qMakePair(leftData, rightData);
+    //    }
+    //}
+    
 }
 
 // OBSのすべての音声ソースを取得してPhase Meterに追加
@@ -293,7 +323,22 @@ static void createPhaseMeterDock()
 		obs_enum_sources(add_audio_source_enum, widget);
 
 		// 少し遅延してから音声監視を開始
-		QTimer::singleShot(1000, start_audio_monitoring);
+		//QTimer::singleShot(1000, start_audio_monitoring);
+
+		 // タイマーベースの更新システム（現在は無効）
+		
+     //   updateTimer = new QTimer();
+     //   updateTimer->setInterval(33); // 30fps
+     //   QObject::connect(updateTimer, &QTimer::timeout, []() {
+     //       if (phaseMeterDock && !phaseMeterDock.isNull()) {
+     //           PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
+     //           if (widget) {
+					//pendingAudioData(widget);
+     //           }
+     //       }
+     //   });
+     //   updateTimer->start();
+        
 	}
 
 	blog(LOG_INFO, "Phase Meter: Dock created successfully");
@@ -347,6 +392,12 @@ void obs_module_unload(void)
 
 	// 音声監視を停止
 	stop_audio_monitoring();
+
+	// 少し待機してからリソースを解放
+	if (QApplication::instance()) {
+		QApplication::processEvents();
+		QThread::msleep(100); // 100ms待機
+	}
 
 	// シグナルハンドラを切断
 	signal_handler_t *core_signals = obs_get_signal_handler();
