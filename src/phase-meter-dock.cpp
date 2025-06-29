@@ -1,4 +1,4 @@
-#include "phase-meter-dock.h"
+﻿#include "phase-meter-dock.h"
 
 PhaseMeterDock::PhaseMeterDock(QWidget* parent)
     : QDockWidget("Phase Meter", parent)
@@ -7,8 +7,9 @@ PhaseMeterDock::PhaseMeterDock(QWidget* parent)
     setWidget(m_phaseMeterWidget);
     setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     setAllowedAreas(Qt::AllDockWidgetAreas);
+
+    // 親が削除される時に適切にクリーンアップ
+    setAttribute(Qt::WA_DeleteOnClose, false);
 }
 
 PhaseMeterDock::~PhaseMeterDock() = default;
-
-// #include "phase-meter-dock.moc"

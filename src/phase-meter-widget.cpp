@@ -3,6 +3,7 @@
 #include <QColorDialog>
 #include <QResizeEvent>
 #include <QPaintEvent>
+#include <QMutexLocker>
 #include <cmath>
 
 PhaseMeterWidget::PhaseMeterWidget(QWidget* parent)
@@ -17,7 +18,9 @@ PhaseMeterWidget::PhaseMeterWidget(QWidget* parent)
     m_updateTimer->start();
 }
 
-PhaseMeterWidget::~PhaseMeterWidget() = default;
+PhaseMeterWidget::~PhaseMeterWidget(){
+	cleanup();
+}
 
 void PhaseMeterWidget::setupUI() {
     m_mainLayout = new QVBoxLayout(this);
@@ -49,163 +52,254 @@ void PhaseMeterWidget::setupUI() {
 }
 
 void PhaseMeterWidget::addAudioSource(const QString& name, const QColor& color) {
-    auto source = std::make_unique<AudioSource>(name, color);
-    m_audioSources.push_back(std::move(source));
-    m_sourceCombo->addItem(name);
+	if (m_isDestroying)
+		return;
+
+	QMutexLocker locker(&m_sourcesMutex);
+
+	// 既に存在するかチェック
+	auto it = std::find_if(m_audioSources.begin(), m_audioSources.end(),
+			       [&name](const auto &source) { return source->name == name; });
+
+	if (it == m_audioSources.end()) {
+		auto source = std::make_unique<AudioSource>(name, color);
+		m_audioSources.push_back(std::move(source));
+
+		// UIの更新はメインスレッドで実行
+		QMetaObject::invokeMethod(
+			this,
+			[this, name]() {
+				if (!m_isDestroying && m_sourceCombo) {
+					m_sourceCombo->addItem(name);
+				}
+			},
+			Qt::QueuedConnection);
+	}
 }
 
 void PhaseMeterWidget::removeAudioSource(const QString& name) {
-    auto it = std::find_if(m_audioSources.begin(), m_audioSources.end(),
-                          [&name](const auto& source) { return source->name == name; });
-    
-    if (it != m_audioSources.end()) {
-        m_audioSources.erase(it);
-        
-        // コンボボックスからも削除
-        for (int i = 1; i < m_sourceCombo->count(); ++i) {
-            if (m_sourceCombo->itemText(i) == name) {
-                m_sourceCombo->removeItem(i);
-                break;
-            }
-        }
-    }
+	if (m_isDestroying)
+		return;
+
+	QMutexLocker locker(&m_sourcesMutex);
+
+	auto it = std::find_if(m_audioSources.begin(), m_audioSources.end(),
+			       [&name](const auto &source) { return source->name == name; });
+
+	if (it != m_audioSources.end()) {
+		m_audioSources.erase(it);
+
+		// UIの更新はメインスレッドで実行
+		QMetaObject::invokeMethod(
+			this,
+			[this, name]() {
+				if (!m_isDestroying && m_sourceCombo) {
+					for (int i = 1; i < m_sourceCombo->count(); ++i) {
+						if (m_sourceCombo->itemText(i) == name) {
+							m_sourceCombo->removeItem(i);
+							break;
+						}
+					}
+				}
+			},
+			Qt::QueuedConnection);
+	}
 }
 
 void PhaseMeterWidget::updateAudioData(const QString& sourceName, const float* left, const float* right, size_t frames) {
-    auto it = std::find_if(m_audioSources.begin(), m_audioSources.end(),
-                          [&sourceName](const auto& source) { return source->name == sourceName; });
-    
-    if (it != m_audioSources.end()) {
-        auto& source = *it;
-        source->leftChannel.assign(left, left + frames);
-        source->rightChannel.assign(right, right + frames);
-    }
+	if (m_isDestroying || !left || !right || frames == 0)
+		return;
+
+	QMutexLocker locker(&m_sourcesMutex);
+
+	auto it = std::find_if(m_audioSources.begin(), m_audioSources.end(),
+			       [&sourceName](const auto &source) { return source->name == sourceName; });
+
+	if (it != m_audioSources.end()) {
+		auto &source = *it;
+		QMutexLocker dataLocker(&source->dataMutex);
+
+		// データをコピー（安全に）
+		try {
+			source->leftChannel.assign(left, left + frames);
+			source->rightChannel.assign(right, right + frames);
+		} catch (...) {
+			// メモリエラーを無視
+		}
+	}
 }
 
 void PhaseMeterWidget::paintEvent(QPaintEvent* event) {
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing);
-    
-    QRect meterRect = rect();
-    meterRect.setTop(m_controlLayout->geometry().bottom() + 10);
-    meterRect.adjust(10, 10, -10, -10);
-    
-    drawPhaseMeter(painter, meterRect);
+	if (m_isDestroying)
+		return;
+
+	QPainter painter(this);
+	painter.setRenderHint(QPainter::Antialiasing);
+
+	QRect meterRect = rect();
+	if (m_controlLayout && m_controlLayout->geometry().isValid()) {
+		meterRect.setTop(m_controlLayout->geometry().bottom() + 10);
+	}
+	meterRect.adjust(10, 10, -10, -10);
+
+	if (meterRect.isValid()) {
+		drawPhaseMeter(painter, meterRect);
+	}
 }
 
 void PhaseMeterWidget::drawPhaseMeter(QPainter& painter, const QRect& rect) {
-    // 背景を描画
-    painter.fillRect(rect, Qt::black);
-    
-    // グリッドを描画
-    painter.setPen(QPen(Qt::darkGray, 1));
-    QPoint center = rect.center();
-    int radius = std::min(rect.width(), rect.height()) / 2 - 20;
-    
-    // 円を描画
-    painter.drawEllipse(center, radius, radius);
-    
-    // 十字線を描画
-    painter.drawLine(center.x() - radius, center.y(), center.x() + radius, center.y());
-    painter.drawLine(center.x(), center.y() - radius, center.x(), center.y() + radius);
-    
-    // 対角線を描画
-    int diagonalOffset = radius * 0.707; // cos(45度)
-    painter.drawLine(center.x() - diagonalOffset, center.y() - diagonalOffset,
-                    center.x() + diagonalOffset, center.y() + diagonalOffset);
-    painter.drawLine(center.x() - diagonalOffset, center.y() + diagonalOffset,
-                    center.x() + diagonalOffset, center.y() - diagonalOffset);
-    
-    // 音声データを描画
-    int selectedIndex = m_sourceCombo->currentIndex();
-    
-    if (selectedIndex == 0) { // All Sources
-        for (const auto& source : m_audioSources) {
-            if (source->enabled && !source->leftChannel.empty() && !source->rightChannel.empty()) {
-                PhaseMeterWidget::drawAudioSource(painter, center, radius, *source);
-            }
-        }
-    } else if (selectedIndex > 0 && selectedIndex - 1 < m_audioSources.size()) {
-        const auto& source = m_audioSources[selectedIndex - 1];
-        if (source->enabled && !source->leftChannel.empty() && !source->rightChannel.empty()) {
-            PhaseMeterWidget::drawAudioSource(painter, center, radius, *source);
-        }
-    }
+	// 背景を描画
+	painter.fillRect(rect, Qt::black);
+
+	// グリッドを描画
+	painter.setPen(QPen(Qt::darkGray, 1));
+	QPoint center = rect.center();
+	int radius = std::min(rect.width(), rect.height()) / 2 - 20;
+
+	// 円を描画
+	painter.drawEllipse(center, radius, radius);
+
+	// 十字線を描画
+	painter.drawLine(center.x() - radius, center.y(), center.x() + radius, center.y());
+	painter.drawLine(center.x(), center.y() - radius, center.x(), center.y() + radius);
+
+	// 対角線を描画
+	int diagonalOffset = static_cast<int>(radius * 0.707); // cos(45度)
+	painter.drawLine(center.x() - diagonalOffset, center.y() - diagonalOffset, center.x() + diagonalOffset,
+			 center.y() + diagonalOffset);
+	painter.drawLine(center.x() - diagonalOffset, center.y() + diagonalOffset, center.x() + diagonalOffset,
+			 center.y() - diagonalOffset);
+
+	// 音声データを描画
+	int selectedIndex = m_sourceCombo->currentIndex();
+
+	QMutexLocker locker(&m_sourcesMutex);
+
+	if (selectedIndex == 0) { // All Sources
+		for (const auto &source : m_audioSources) {
+			if (source->enabled) {
+				QMutexLocker dataLocker(&source->dataMutex);
+				if (!source->leftChannel.empty() && !source->rightChannel.empty()) {
+					drawAudioSource(painter, center, radius, *source);
+				}
+			}
+		}
+	} else if (selectedIndex > 0 && selectedIndex - 1 < static_cast<int>(m_audioSources.size())) {
+		const auto &source = m_audioSources[selectedIndex - 1];
+		if (source->enabled) {
+			QMutexLocker dataLocker(&source->dataMutex);
+			if (!source->leftChannel.empty() && !source->rightChannel.empty()) {
+				drawAudioSource(painter, center, radius, *source);
+			}
+		}
+	}
 }
 
 void PhaseMeterWidget::drawCorrelationMeter(QPainter &painter, const QRect &rect) {}
 
 void PhaseMeterWidget::drawAudioSource(QPainter& painter, const QPoint& center, int radius, const AudioSource& source) {
-    painter.setPen(QPen(source.color, 2));
-    
-    // 最新の音声データからフェーズ関係を計算
-    size_t sampleCount = std::min(source.leftChannel.size(), source.rightChannel.size());
-    if (sampleCount == 0) return;
-    
-    // 相関値を計算
-    float correlation = 0.0f;
-    float leftSum = 0.0f, rightSum = 0.0f;
-    
-    for (size_t i = 0; i < sampleCount; ++i) {
-        correlation += source.leftChannel[i] * source.rightChannel[i];
-        leftSum += source.leftChannel[i] * source.leftChannel[i];
-        rightSum += source.rightChannel[i] * source.rightChannel[i];
-    }
-    
-    if (leftSum > 0 && rightSum > 0) {
-        correlation /= std::sqrt(leftSum * rightSum);
-    }
-    
-    // 相関値を表示用に更新
-    if (PhaseMeterWidget::m_sourceCombo->currentIndex() == 0 || 
-        (PhaseMeterWidget::m_sourceCombo->currentIndex() > 0 && PhaseMeterWidget::m_sourceCombo->currentText() == source.name)) {
-        PhaseMeterWidget::m_correlationLabel->setText(QString("Correlation: %1").arg(correlation, 0, 'f', 2));
-    }
-    
-    // フェーズメーターにプロット
-    QVector<QPoint> points;
-    int step = std::max(1, static_cast<int>(sampleCount / 200)); // 200点程度に間引き
-    
-    for (size_t i = 0; i < sampleCount; i += step) {
-        float left = source.leftChannel[i];
-        float right = source.rightChannel[i];
-        
-        // ステレオ信号を極座標に変換
-        float magnitude = std::sqrt(left * left + right * right);
-        float angle = std::atan2(right, left);
-        
-        if (magnitude > 0.01f) { // 小さすぎる信号は無視
-            int x = center.x() + static_cast<int>(magnitude * radius * std::cos(angle));
-            int y = center.y() + static_cast<int>(magnitude * radius * std::sin(angle));
-            
-            points.append(QPoint(x, y));
-        }
-    }
-    
-    // 点を描画
-    for (const QPoint& point : points) {
-        painter.drawEllipse(point, 1, 1);
-    }
+	painter.setPen(QPen(source.color, 2));
+
+	// 最新の音声データからフェーズ関係を計算
+	size_t sampleCount = std::min(source.leftChannel.size(), source.rightChannel.size());
+	if (sampleCount == 0)
+		return;
+
+	// 相関値を計算
+	float correlation = 0.0f;
+	float leftSum = 0.0f, rightSum = 0.0f;
+
+	for (size_t i = 0; i < sampleCount; ++i) {
+		correlation += source.leftChannel[i] * source.rightChannel[i];
+		leftSum += source.leftChannel[i] * source.leftChannel[i];
+		rightSum += source.rightChannel[i] * source.rightChannel[i];
+	}
+
+	if (leftSum > 0 && rightSum > 0) {
+		correlation /= std::sqrt(leftSum * rightSum);
+	}
+
+	// 相関値を表示用に更新
+	if (m_sourceCombo->currentIndex() == 0 ||
+	    (m_sourceCombo->currentIndex() > 0 && m_sourceCombo->currentText() == source.name)) {
+		QMetaObject::invokeMethod(
+			this,
+			[this, correlation]() {
+				if (!m_isDestroying && m_correlationLabel) {
+					m_correlationLabel->setText(
+						QString("Correlation: %1").arg(correlation, 0, 'f', 2));
+				}
+			},
+			Qt::QueuedConnection);
+	}
+
+	// フェーズメーターにプロット
+	QVector<QPoint> points;
+	int step = std::max(1, static_cast<int>(sampleCount / 200)); // 200点程度に間引き
+
+	for (size_t i = 0; i < sampleCount; i += step) {
+		float left = source.leftChannel[i];
+		float right = source.rightChannel[i];
+
+		// ステレオ信号を極座標に変換
+		float magnitude = std::sqrt(left * left + right * right);
+		float angle = std::atan2(right, left);
+
+		if (magnitude > 0.01f) { // 小さすぎる信号は無視
+			int x = center.x() + static_cast<int>(magnitude * radius * std::cos(angle));
+			int y = center.y() + static_cast<int>(magnitude * radius * std::sin(angle));
+
+			points.append(QPoint(x, y));
+		}
+	}
+
+	// 点を描画
+	for (const QPoint &point : points) {
+		painter.drawEllipse(point, 1, 1);
+	}
 }
 
-void PhaseMeterWidget::onSourceSelectionChanged() {
-    update();
+void PhaseMeterWidget::onSourceSelectionChanged()
+{
+	if (!m_isDestroying) {
+		update();
+	}
 }
 
-void PhaseMeterWidget::onColorButtonClicked() {
-    int selectedIndex = m_sourceCombo->currentIndex();
-    if (selectedIndex > 0 && selectedIndex - 1 < m_audioSources.size()) {
-        auto& source = m_audioSources[selectedIndex - 1];
-        QColor newColor = QColorDialog::getColor(source->color, this, "Select Color");
-        if (newColor.isValid()) {
-            source->color = newColor;
-            update();
-        }
-    }
+void PhaseMeterWidget::onColorButtonClicked()
+{
+	if (m_isDestroying)
+		return;
+
+	int selectedIndex = m_sourceCombo->currentIndex();
+	if (selectedIndex > 0) {
+		QMutexLocker locker(&m_sourcesMutex);
+		if (selectedIndex - 1 < static_cast<int>(m_audioSources.size())) {
+			auto &source = m_audioSources[selectedIndex - 1];
+			QColor newColor = QColorDialog::getColor(source->color, this, "Select Color");
+			if (newColor.isValid()) {
+				source->color = newColor;
+				update();
+			}
+		}
+	}
+}
+
+void PhaseMeterWidget::cleanup() {
+	m_isDestroying = true;
+
+	if (m_updateTimer) {
+		m_updateTimer->stop();
+	}
+
+	QMutexLocker locker(&m_sourcesMutex);
+	m_audioSources.clear();
 }
 
 void PhaseMeterWidget::updateDisplay() {
-    update();
+	if (!m_isDestroying) {
+		update();
+	}
 }
 
 void PhaseMeterWidget::resizeEvent(QResizeEvent* event) {
@@ -213,4 +307,7 @@ void PhaseMeterWidget::resizeEvent(QResizeEvent* event) {
     update();
 }
 
-//#include "phase-meter-widget.moc"
+void PhaseMeterWidget::closeEvent(QCloseEvent *event) {
+	cleanup();
+	QWidget::closeEvent(event);
+}
