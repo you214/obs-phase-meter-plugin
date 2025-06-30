@@ -490,10 +490,17 @@ void PhaseMeterWidget::onColorButtonClicked()
 		QMutexLocker locker(&m_sourcesMutex);
 		if (selectedIndex - 1 < static_cast<int>(m_audioSources.size())) {
 			auto &source = m_audioSources[selectedIndex - 1];
-			QColor newColor = QColorDialog::getColor(source->color, this, "Select Color");
-			if (newColor.isValid()) {
-				source->color = newColor;
-				m_needsUpdate = true;
+
+			// ネイティブダイアログを無効にするオプションを追加
+			QColorDialog dialog(source->color, this);
+			dialog.setOption(QColorDialog::DontUseNativeDialog, true);
+
+			if (dialog.exec() == QDialog::Accepted) {
+				QColor newColor = dialog.selectedColor();
+				if (newColor.isValid()) {
+					source->color = newColor;
+					m_needsUpdate = true;
+				}
 			}
 		}
 	}

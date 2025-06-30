@@ -43,9 +43,7 @@ static QMutex audioMutex;
 static bool moduleUnloading = false;
 static bool audioMonitoringActive = false;
 
-static QTimer *updateTimer = nullptr;
-static QMutex pendingDataMutex;
-static QHash<QString, QPair<QVector<float>, QVector<float>>> pendingAudioData;
+
 
 // 音声データを監視するコールバック
 static void audio_capture_callback(void *data, obs_source_t *source, const struct audio_data *audio_data, bool muted)
@@ -54,58 +52,38 @@ static void audio_capture_callback(void *data, obs_source_t *source, const struc
 		return;
 	}
 
-  // 描画処理を一時的にコメントアウト
-	
-    QMutexLocker locker(&audioMutex);
-    
-    PhaseMeterWidget *widget = static_cast<PhaseMeterWidget *>(data);
-    if (!widget) {
-        return;
-    }
+	QMutexLocker locker(&audioMutex);
 
-    const char *sourceName = obs_source_get_name(source);
-    if (!sourceName || audio_data->frames == 0) {
-        return;
-    }
-
-    // ステレオ音声データがあるかチェック
-    if (audio_data->data[0] && audio_data->data[1]) {
-        const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
-        const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
-
-        QString sourceNameQt = QString::fromUtf8(sourceName);
-        
-        // メインスレッドで安全に更新
-        QMetaObject::invokeMethod(widget, [widget, sourceNameQt, left, right, audio_data]() {
-            widget->updateAudioData(sourceNameQt, left, right, audio_data->frames);
-        }, Qt::QueuedConnection);
-    }
-    
-
-	// デバッグ用：音声データが来ていることだけを確認
-	static int callback_count = 0;
-	if (++callback_count % 1000 == 0) { // 1000回に1回だけログ出力
-		blog(LOG_DEBUG, "Phase Meter: Audio callback called %d times", callback_count);
+	PhaseMeterWidget *widget = static_cast<PhaseMeterWidget *>(data);
+	if (!widget) {
+		return;
 	}
-	
-    // 後で有効にする場合の処理（現在はコメントアウト）
-    if (audio_data->data[0] && audio_data->data[1] && audio_data->frames > 0) {
-        const char *sourceName = obs_source_get_name(source);
-        if (sourceName) {
-            QMutexLocker locker(&pendingDataMutex);
-            QString sourceNameQt = QString::fromUtf8(sourceName);
-            
-            // データをキューに保存（最新のもののみ保持）
-            const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
-            const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
-            
-            QVector<float> leftData(left, left + audio_data->frames);
-            QVector<float> rightData(right, right + audio_data->frames);
-            
-            pendingAudioData[sourceNameQt] = qMakePair(leftData, rightData);
-        }
-    }
-    
+
+	const char *sourceName = obs_source_get_name(source);
+	if (!sourceName || audio_data->frames == 0) {
+		return;
+	}
+
+	// ステレオ音声データがあるかチェック
+	if (audio_data->data[0] && audio_data->data[1]) {
+		const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
+		const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
+
+		QString sourceNameQt = QString::fromUtf8(sourceName);
+
+		// データをQVectorにコピーして、安全にメインスレッドに渡す
+		QVector<float> leftData(left, left + audio_data->frames);
+		QVector<float> rightData(right, right + audio_data->frames);
+
+		// メインスレッドで安全に更新
+		QMetaObject::invokeMethod(
+			widget,
+			[widget, sourceNameQt, leftData, rightData]() {
+				widget->updateAudioData(sourceNameQt, leftData.constData(), rightData.constData(),
+							leftData.size());
+			},
+			Qt::QueuedConnection);
+	}
 }
 
 // OBSのすべての音声ソースを取得してPhase Meterに追加
@@ -325,29 +303,7 @@ static void createPhaseMeterDock()
 		// 少し遅延してから音声監視を開始
 		//QTimer::singleShot(1000, start_audio_monitoring);
 
-		 // タイマーベースの更新システム（現在は無効）
-		
-
-        // 修正: pendingAudioData を正しく使用するために、適切な関数呼び出しを行う
-        updateTimer = new QTimer();
-        updateTimer->setInterval(33); // 30fps
-        QObject::connect(updateTimer, &QTimer::timeout, []() {
-            if (phaseMeterDock && !phaseMeterDock.isNull()) {
-                PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
-                if (widget) {
-                    QMutexLocker locker(&pendingDataMutex);
-                    for (auto it = pendingAudioData.begin(); it != pendingAudioData.end(); ++it) {
-                        const QString &sourceName = it.key();
-                        const QVector<float> &leftData = it.value().first;
-                        const QVector<float> &rightData = it.value().second;
-
-                        widget->updateAudioData(sourceName, leftData.data(), rightData.data(), leftData.size());
-                    }
-                    pendingAudioData.clear(); // データをクリア
-                }
-            }
-        });
-        updateTimer->start();
+		 
         
 	}
 
