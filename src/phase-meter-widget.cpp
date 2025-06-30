@@ -1,4 +1,5 @@
 ﻿#include "phase-meter-widget.h"
+#include <obs-module.h>
 #include <QApplication>
 #include <QColorDialog>
 #include <QResizeEvent>
@@ -19,7 +20,8 @@ PhaseMeterWidget::PhaseMeterWidget(QWidget *parent)
 	  m_updateTimer(new QTimer(this)),
 	  m_isDestroying(false),
 	  m_needsUpdate(false),
-	  m_isProcessing(false)
+	  m_isProcessing(false),
+	  m_colorDialog(nullptr)
 {
 	setupUI();
 
@@ -224,14 +226,12 @@ void PhaseMeterWidget::drawAudioDataAsync(QPainter &painter, const QRect &rect)
 	int radius = std::min(rect.width(), rect.height()) / 2 - 20;
 	int selectedIndex = m_sourceCombo->currentIndex();
 
-	// 描画データを並列で準備
 	std::vector<RenderData> renderData;
 
 	{
 		QMutexLocker locker(&m_sourcesMutex);
 
 		if (selectedIndex == 0) { // All Sources
-			// 全ソース表示時は最大3つまでに制限
 			int count = 0;
 			for (const auto &source : m_audioSources) {
 				if (source->enabled && count < 3) {
@@ -253,21 +253,10 @@ void PhaseMeterWidget::drawAudioDataAsync(QPainter &painter, const QRect &rect)
 		}
 	}
 
-	// 並列処理で各ソースの描画データを計算
-	if (!renderData.empty()) {
-		auto futures = processAudioSourcesParallel(renderData, center, radius);
-
-		// 結果を描画
-		for (auto &future : futures) {
-			if (future.valid()) {
-				try {
-					auto result = future.get();
-					drawProcessedAudioSource(painter, result);
-				} catch (...) {
-					// エラーを無視
-				}
-			}
-		}
+	// Synchronous processing and drawing for debugging
+	for (const auto &data : renderData) {
+		ProcessedAudioData result = processAudioSourceData(data, center, radius);
+		drawProcessedAudioSource(painter, result);
 	}
 }
 
@@ -485,24 +474,46 @@ void PhaseMeterWidget::onColorButtonClicked()
 	if (m_isDestroying)
 		return;
 
+	if (m_colorDialog && m_colorDialog->isVisible()) {
+		m_colorDialog->raise();
+		m_colorDialog->activateWindow();
+		return;
+	}
+
 	int selectedIndex = m_sourceCombo->currentIndex();
 	if (selectedIndex > 0) {
 		QMutexLocker locker(&m_sourcesMutex);
 		if (selectedIndex - 1 < static_cast<int>(m_audioSources.size())) {
 			auto &source = m_audioSources[selectedIndex - 1];
 
-			// ネイティブダイアログを無効にするオプションを追加
-			QColorDialog dialog(source->color, this);
-			dialog.setOption(QColorDialog::DontUseNativeDialog, true);
+			m_colorDialog = new QColorDialog(source->color, this);
+			m_colorDialog->setOption(QColorDialog::DontUseNativeDialog, true);
+			connect(m_colorDialog, &QColorDialog::colorSelected, this, &PhaseMeterWidget::onColorSelected);
+			m_colorDialog->show();
+		}
+	}
+}
 
-			if (dialog.exec() == QDialog::Accepted) {
-				QColor newColor = dialog.selectedColor();
-				if (newColor.isValid()) {
-					source->color = newColor;
-					m_needsUpdate = true;
-				}
+void PhaseMeterWidget::onColorSelected(const QColor &color)
+{
+	if (m_isDestroying)
+		return;
+
+	int selectedIndex = m_sourceCombo->currentIndex();
+	if (selectedIndex > 0) {
+		QMutexLocker locker(&m_sourcesMutex);
+		if (selectedIndex - 1 < static_cast<int>(m_audioSources.size())) {
+			auto &source = m_audioSources[selectedIndex - 1];
+			if (color.isValid()) {
+				source->color = color;
+				m_needsUpdate = true;
 			}
 		}
+	}
+
+	if (m_colorDialog) {
+		m_colorDialog->deleteLater();
+		m_colorDialog = nullptr;
 	}
 }
 

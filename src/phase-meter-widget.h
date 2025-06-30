@@ -14,6 +14,8 @@
 #include <vector>
 #include <memory>
 #include <future>
+#include <QImage>
+
 class AudioSource {
 public:
 	QString name;
@@ -48,6 +50,7 @@ private slots:
 	void onSourceSelectionChanged();
 	void onColorButtonClicked();
 	void updateDisplay();
+	void onColorSelected(const QColor &color);
 
 private:
 	void setupUI();
@@ -66,6 +69,8 @@ private:
 	mutable QMutex m_sourcesMutex; // オーディオソース保護用
 	bool m_isDestroying;
 	bool m_needsUpdate;
+
+	QColorDialog *m_colorDialog;
 
 	// Phase meter specific
 	static constexpr int PHASE_METER_SIZE = 200;
