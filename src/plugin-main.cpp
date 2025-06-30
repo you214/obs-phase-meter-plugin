@@ -55,7 +55,7 @@ static void audio_capture_callback(void *data, obs_source_t *source, const struc
 	}
 
   // 描画処理を一時的にコメントアウト
-	/*
+	
     QMutexLocker locker(&audioMutex);
     
     PhaseMeterWidget *widget = static_cast<PhaseMeterWidget *>(data);
@@ -80,7 +80,7 @@ static void audio_capture_callback(void *data, obs_source_t *source, const struc
             widget->updateAudioData(sourceNameQt, left, right, audio_data->frames);
         }, Qt::QueuedConnection);
     }
-    */
+    
 
 	// デバッグ用：音声データが来ていることだけを確認
 	static int callback_count = 0;
@@ -89,22 +89,22 @@ static void audio_capture_callback(void *data, obs_source_t *source, const struc
 	}
 	
     // 後で有効にする場合の処理（現在はコメントアウト）
-    //if (audio_data->data[0] && audio_data->data[1] && audio_data->frames > 0) {
-    //    const char *sourceName = obs_source_get_name(source);
-    //    if (sourceName) {
-    //        QMutexLocker locker(&pendingDataMutex);
-    //        QString sourceNameQt = QString::fromUtf8(sourceName);
-    //        
-    //        // データをキューに保存（最新のもののみ保持）
-    //        const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
-    //        const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
-    //        
-    //        QVector<float> leftData(left, left + audio_data->frames);
-    //        QVector<float> rightData(right, right + audio_data->frames);
-    //        
-    //        pendingAudioData[sourceNameQt] = qMakePair(leftData, rightData);
-    //    }
-    //}
+    if (audio_data->data[0] && audio_data->data[1] && audio_data->frames > 0) {
+        const char *sourceName = obs_source_get_name(source);
+        if (sourceName) {
+            QMutexLocker locker(&pendingDataMutex);
+            QString sourceNameQt = QString::fromUtf8(sourceName);
+            
+            // データをキューに保存（最新のもののみ保持）
+            const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
+            const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
+            
+            QVector<float> leftData(left, left + audio_data->frames);
+            QVector<float> rightData(right, right + audio_data->frames);
+            
+            pendingAudioData[sourceNameQt] = qMakePair(leftData, rightData);
+        }
+    }
     
 }
 
@@ -327,17 +327,27 @@ static void createPhaseMeterDock()
 
 		 // タイマーベースの更新システム（現在は無効）
 		
-     //   updateTimer = new QTimer();
-     //   updateTimer->setInterval(33); // 30fps
-     //   QObject::connect(updateTimer, &QTimer::timeout, []() {
-     //       if (phaseMeterDock && !phaseMeterDock.isNull()) {
-     //           PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
-     //           if (widget) {
-					//pendingAudioData(widget);
-     //           }
-     //       }
-     //   });
-     //   updateTimer->start();
+
+        // 修正: pendingAudioData を正しく使用するために、適切な関数呼び出しを行う
+        updateTimer = new QTimer();
+        updateTimer->setInterval(33); // 30fps
+        QObject::connect(updateTimer, &QTimer::timeout, []() {
+            if (phaseMeterDock && !phaseMeterDock.isNull()) {
+                PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
+                if (widget) {
+                    QMutexLocker locker(&pendingDataMutex);
+                    for (auto it = pendingAudioData.begin(); it != pendingAudioData.end(); ++it) {
+                        const QString &sourceName = it.key();
+                        const QVector<float> &leftData = it.value().first;
+                        const QVector<float> &rightData = it.value().second;
+
+                        widget->updateAudioData(sourceName, leftData.data(), rightData.data(), leftData.size());
+                    }
+                    pendingAudioData.clear(); // データをクリア
+                }
+            }
+        });
+        updateTimer->start();
         
 	}
 
