@@ -1,7 +1,9 @@
 ﻿#include "phase-meter-widget.h"
 #include <obs-module.h>
+#include <obs-frontend-api.h>
 #include <QApplication>
 #include <QColorDialog>
+#include <QMainWindow>
 #include <QResizeEvent>
 #include <QPaintEvent>
 #include <QMutexLocker>
@@ -20,8 +22,7 @@ PhaseMeterWidget::PhaseMeterWidget(QWidget *parent)
 	  m_updateTimer(new QTimer(this)),
 	  m_isDestroying(false),
 	  m_needsUpdate(false),
-	  m_isProcessing(false),
-	  m_colorDialog(nullptr)
+	  m_isProcessing(false)
 {
 	setupUI();
 
@@ -474,48 +475,45 @@ void PhaseMeterWidget::onColorButtonClicked()
 	if (m_isDestroying)
 		return;
 
-	if (m_colorDialog && m_colorDialog->isVisible()) {
-		m_colorDialog->raise();
-		m_colorDialog->activateWindow();
-		return;
-	}
-
 	int selectedIndex = m_sourceCombo->currentIndex();
 	if (selectedIndex > 0) {
-		QMutexLocker locker(&m_sourcesMutex);
-		if (selectedIndex - 1 < static_cast<int>(m_audioSources.size())) {
-			auto &source = m_audioSources[selectedIndex - 1];
+		QString sourceName = m_sourceCombo->itemText(selectedIndex);
+		if (sourceName.isEmpty()) return;
 
-			m_colorDialog = new QColorDialog(source->color, this);
-			m_colorDialog->setOption(QColorDialog::DontUseNativeDialog, true);
-			connect(m_colorDialog, &QColorDialog::colorSelected, this, &PhaseMeterWidget::onColorSelected);
-			m_colorDialog->show();
+		QMutexLocker locker(&m_sourcesMutex);
+		
+		auto it = std::find_if(m_audioSources.begin(), m_audioSources.end(),
+					   [&sourceName](const auto &s) { return s->name == sourceName; });
+
+		if (it != m_audioSources.end()) {
+			auto &source = *it;
+
+			QMainWindow *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
+			
+			QColorDialog *dialog = new QColorDialog(source->color, mainWindow);
+			dialog->setAttribute(Qt::WA_DeleteOnClose);
+
+			connect(dialog, &QColorDialog::colorSelected, this, [this, sourceName](const QColor &color) {
+				if (m_isDestroying) return;
+
+				if (color.isValid()) {
+					QMutexLocker locker(&m_sourcesMutex);
+					auto it = std::find_if(m_audioSources.begin(), m_audioSources.end(),
+							   [&sourceName](const auto &s) { return s->name == sourceName; });
+
+					if (it != m_audioSources.end()) {
+						(*it)->color = color;
+						m_needsUpdate = true;
+					}
+				}
+			});
+
+			dialog->open();
 		}
 	}
 }
 
-void PhaseMeterWidget::onColorSelected(const QColor &color)
-{
-	if (m_isDestroying)
-		return;
 
-	int selectedIndex = m_sourceCombo->currentIndex();
-	if (selectedIndex > 0) {
-		QMutexLocker locker(&m_sourcesMutex);
-		if (selectedIndex - 1 < static_cast<int>(m_audioSources.size())) {
-			auto &source = m_audioSources[selectedIndex - 1];
-			if (color.isValid()) {
-				source->color = color;
-				m_needsUpdate = true;
-			}
-		}
-	}
-
-	if (m_colorDialog) {
-		m_colorDialog->deleteLater();
-		m_colorDialog = nullptr;
-	}
-}
 
 void PhaseMeterWidget::cleanup()
 {
