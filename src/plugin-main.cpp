@@ -16,10 +16,12 @@ You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
+// 修正前
 #include <obs-module.h>
 #include <plugin-support.h>
 #include <obs-frontend-api.h>
 
+// 修正後 - Qt系を先にinclude
 #include <QMainWindow>
 #include <QAction>
 #include <QMenuBar>
@@ -31,6 +33,11 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QRandomGenerator>
 #include <QTime>
 #include <QThread>
+
+#include <obs-module.h>
+#include <plugin-support.h>
+#include <obs-frontend-api.h>
+
 #include "phase-meter-dock.h"
 
 OBS_DECLARE_MODULE()
@@ -161,6 +168,8 @@ static void stop_audio_monitoring()
 // ソースが作成された時のハンドラ
 static void source_create_handler(void *data, calldata_t *calldata)
 {
+	(void)data; // 未使用パラメータを明示的にマーク
+
 	obs_source_t *source = static_cast<obs_source_t *>(calldata_ptr(calldata, "source"));
 	if (!source || moduleUnloading) {
 		return;
@@ -192,6 +201,8 @@ static void source_create_handler(void *data, calldata_t *calldata)
 // ソースが削除された時のハンドラ
 static void source_destroy_handler(void *data, calldata_t *calldata)
 {
+	(void)data; // 未使用パラメータを明示的にマーク
+
 	obs_source_t *source = static_cast<obs_source_t *>(calldata_ptr(calldata, "source"));
 	if (!source || moduleUnloading) {
 		return;
@@ -321,6 +332,8 @@ static void createPhaseMeterDock()
 // OBSのイベントハンドラ
 static void obs_event_handler(enum obs_frontend_event event, void *data)
 {
+	(void)data; // 未使用パラメータを明示的にマーク
+
 	switch (event) {
 	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
 		// OBSの読み込み完了後に音声ソースを再列挙
