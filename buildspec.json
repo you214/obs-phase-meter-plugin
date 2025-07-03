@@ -1,7 +1,7 @@
 {
     "dependencies": {
         "obs-studio": {
-            "version": "31.0.0",
+            "version": "30.0.0",
             "baseUrl": "https://github.com/obsproject/obs-studio/archive/refs/tags",
             "label": "OBS sources",
             "hashes": {
@@ -33,13 +33,13 @@
     },
     "platformConfig": {
         "macos": {
-            "bundleId": "com.example.plugintemplate-for-obs"
+            "bundleId": "com.example.audio-phase-meter-for-obs"
         }
     },
-    "name": "plugintemplate-for-obs",
-    "displayName": "Plugin Template for OBS",
+    "name": "audio-phase-meter-for-obs",
+    "displayName": "Audio Phase Meter for OBS",
     "version": "1.0.0",
-    "author": "Your Name Here",
-    "website": "https://example.com",
+    "author": "you214",
+    "website": "https://github.com/you214",
     "email": "me@example.com"
 }
