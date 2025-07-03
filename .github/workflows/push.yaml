@@ -40,7 +40,6 @@ jobs:
           : Check Release Tag ☑️
           if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
           shopt -s extglob
-
           case "${GITHUB_REF_NAME}" in
             +([0-9]).+([0-9]).+([0-9]) )
               echo 'validTag=true' >> $GITHUB_OUTPUT
@@ -54,7 +53,6 @@ jobs:
               ;;
             *) echo 'validTag=false' >> $GITHUB_OUTPUT ;;
           esac
-
       - name: Download Build Artifacts 📥
         uses: actions/download-artifact@v4
         if: fromJSON(steps.check.outputs.validTag)
@@ -67,39 +65,31 @@ jobs:
           if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
           shopt -s extglob
           shopt -s nullglob
-
           root_dir="$(pwd)"
           commit_hash="${GITHUB_SHA:0:9}"
-
           variants=(
             'windows-x64;zip|exe'
             'macos-universal;tar.xz|pkg'
             'ubuntu-24.04-x86_64;tar.xz|deb|ddeb'
             'sources;tar.xz'
           )
-
           for variant_data in "${variants[@]}"; do
             IFS=';' read -r variant suffix <<< "${variant_data}"
-
             candidates=(*-${variant}-${commit_hash}/@(*|*-dbgsym).@(${suffix}))
-
             for candidate in "${candidates[@]}"; do
               mv "${candidate}" "${root_dir}"
             done
           done
-
       - name: Generate Checksums 🪪
         if: fromJSON(steps.check.outputs.validTag)
         run: |
           : Generate Checksums 🪪
           if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
           shopt -s extglob
-
           echo "### Checksums" > ${{ github.workspace }}/CHECKSUMS.txt
           for file in ${{ github.workspace }}/@(*.exe|*.deb|*.ddeb|*.pkg|*.tar.xz|*.zip); do
             echo "    ${file##*/}: $(sha256sum "${file}" | cut -d " " -f 1)" >> ${{ github.workspace }}/CHECKSUMS.txt
           done
-
       - name: Create Release 🛫
         if: fromJSON(steps.check.outputs.validTag)
         id: create_release
