@@ -31,6 +31,7 @@ runs:
         CCACHE_DIR: ${{ inputs.workingDirectory }}/.ccache
         CODESIGN_IDENT: ${{ inputs.codesignIdent }}
         CODESIGN_TEAM: ${{ inputs.codesignTeam }}
+        MACOSX_DEPLOYMENT_TARGET: '14.0'
       run: |
         : Run macOS Build
 

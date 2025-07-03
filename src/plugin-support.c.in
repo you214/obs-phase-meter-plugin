@@ -1,6 +1,6 @@
 /*
-Plugin Name
-Copyright (C) <Year> <Developer> <Email Address>
+Audoo-phase-meter for OBS
+Copyright (C) 2025 you214 https://github.com/you214
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
