@@ -33,7 +33,6 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QThread>
 #include "phase-meter-dock.h"
 
-
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs-phase-meter", "en-US")
 
@@ -53,26 +52,26 @@ static void audio_capture_callback(void *data, obs_source_t *source, const struc
 		return;
 	}
 
-    const char *sourceName = obs_source_get_name(source);
-    if (sourceName) {
-        blog(LOG_INFO, "audio_capture_callback called for source: %s", sourceName);
-    }
+	const char *sourceName = obs_source_get_name(source);
+	if (sourceName) {
+		blog(LOG_INFO, "audio_capture_callback called for source: %s", sourceName);
+	}
 
-    if (audio_data->data[0] && audio_data->data[1] && audio_data->frames > 0) {
-        if (sourceName) {
-            QMutexLocker locker(&pendingDataMutex);
-            QString sourceNameQt = QString::fromUtf8(sourceName);
-            
-            const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
-            const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
-            
-            QVector<float> leftData(left, left + audio_data->frames);
-            QVector<float> rightData(right, right + audio_data->frames);
-            
-            pendingAudioData[sourceNameQt] = qMakePair(leftData, rightData);
-            blog(LOG_INFO, "Audio data added for source: %s, frames: %d", sourceName, audio_data->frames);
-        }
-    }
+	if (audio_data->data[0] && audio_data->data[1] && audio_data->frames > 0) {
+		if (sourceName) {
+			QMutexLocker locker(&pendingDataMutex);
+			QString sourceNameQt = QString::fromUtf8(sourceName);
+
+			const float *left = reinterpret_cast<const float *>(audio_data->data[0]);
+			const float *right = reinterpret_cast<const float *>(audio_data->data[1]);
+
+			QVector<float> leftData(left, left + audio_data->frames);
+			QVector<float> rightData(right, right + audio_data->frames);
+
+			pendingAudioData[sourceNameQt] = qMakePair(leftData, rightData);
+			blog(LOG_INFO, "Audio data added for source: %s, frames: %d", sourceName, audio_data->frames);
+		}
+	}
 }
 
 // OBSのすべての音声ソースを取得してPhase Meterに追加
@@ -149,9 +148,9 @@ static void stop_audio_monitoring()
 	}
 
 	PhaseMeterWidget *widget = nullptr;
-    if (phaseMeterDock && !phaseMeterDock.isNull()) {
-        widget = phaseMeterDock->getPhaseMeterWidget();
-    }
+	if (phaseMeterDock && !phaseMeterDock.isNull()) {
+		widget = phaseMeterDock->getPhaseMeterWidget();
+	}
 
 	obs_enum_sources(remove_monitoring_callback, widget);
 	audioMonitoringActive = false;
@@ -289,29 +288,31 @@ static void createPhaseMeterDock()
 	if (widget) {
 		obs_enum_sources(add_audio_source_enum, widget);
 
-        updateTimer = new QTimer();
-        updateTimer->setInterval(33); // 30fps
-        QObject::connect(updateTimer, &QTimer::timeout, []() {
-            if (phaseMeterDock && !phaseMeterDock.isNull()) {
-                PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
-                if (widget) {
-                    QMutexLocker locker(&pendingDataMutex);
-                    if (!pendingAudioData.isEmpty()) {
-                        for (auto it = pendingAudioData.begin(); it != pendingAudioData.end(); ++it) {
-                            const QString &sourceName = it.key();
-                            const QVector<float> &leftData = it.value().first;
-                            const QVector<float> &rightData = it.value().second;
+		updateTimer = new QTimer();
+		updateTimer->setInterval(33); // 30fps
+		QObject::connect(updateTimer, &QTimer::timeout, []() {
+			if (phaseMeterDock && !phaseMeterDock.isNull()) {
+				PhaseMeterWidget *widget = phaseMeterDock->getPhaseMeterWidget();
+				if (widget) {
+					QMutexLocker locker(&pendingDataMutex);
+					if (!pendingAudioData.isEmpty()) {
+						for (auto it = pendingAudioData.begin(); it != pendingAudioData.end();
+						     ++it) {
+							const QString &sourceName = it.key();
+							const QVector<float> &leftData = it.value().first;
+							const QVector<float> &rightData = it.value().second;
 
-                            widget->updateAudioData(sourceName, leftData.data(), rightData.data(), leftData.size());
-                        }
-                        pendingAudioData.clear();
-                    }
-                }
-            }
-        });
-        updateTimer->start();
+							widget->updateAudioData(sourceName, leftData.data(),
+										rightData.data(), leftData.size());
+						}
+						pendingAudioData.clear();
+					}
+				}
+			}
+		});
+		updateTimer->start();
 
-        start_audio_monitoring();
+		start_audio_monitoring();
 	}
 
 	blog(LOG_INFO, "Phase Meter: Dock created successfully");
@@ -366,11 +367,11 @@ void obs_module_unload(void)
 	// 音声監視を停止
 	stop_audio_monitoring();
 
-    if (updateTimer) {
-        updateTimer->stop();
-        delete updateTimer;
-        updateTimer = nullptr;
-    }
+	if (updateTimer) {
+		updateTimer->stop();
+		delete updateTimer;
+		updateTimer = nullptr;
+	}
 
 	// 少し待機してからリソースを解放
 	if (QApplication::instance()) {
@@ -402,6 +403,4 @@ void obs_module_unload(void)
 	blog(LOG_INFO, "Phase Meter: Plugin unloaded successfully");
 }
 
-void obs_module_post_load(void)
-{
-}
+void obs_module_post_load(void) {}

@@ -297,7 +297,8 @@ PhaseMeterWidget::processAudioSourcesParallel(const std::vector<RenderData> &ren
 	return futures;
 }
 
-PhaseMeterWidget::ProcessedAudioData PhaseMeterWidget::processAudioSourceData(const RenderData &data, const QPoint &center, int radius)
+PhaseMeterWidget::ProcessedAudioData PhaseMeterWidget::processAudioSourceData(const RenderData &data,
+									      const QPoint &center, int radius)
 {
 
 	ProcessedAudioData result;
@@ -496,28 +497,32 @@ void PhaseMeterWidget::onColorButtonClicked()
 	int selectedIndex = m_sourceCombo->currentIndex();
 	if (selectedIndex > 0) {
 		QString sourceName = m_sourceCombo->itemText(selectedIndex);
-		if (sourceName.isEmpty()) return;
+		if (sourceName.isEmpty())
+			return;
 
 		QMutexLocker locker(&m_sourcesMutex);
-		
+
 		auto it = std::find_if(m_audioSources.begin(), m_audioSources.end(),
-					   [&sourceName](const auto &s) { return s->name == sourceName; });
+				       [&sourceName](const auto &s) { return s->name == sourceName; });
 
 		if (it != m_audioSources.end()) {
 			auto &source = *it;
 
 			QMainWindow *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
-			
+
 			QColorDialog *dialog = new QColorDialog(source->color, mainWindow);
 			dialog->setAttribute(Qt::WA_DeleteOnClose);
 
 			connect(dialog, &QColorDialog::colorSelected, this, [this, sourceName](const QColor &color) {
-				if (m_isDestroying) return;
+				if (m_isDestroying)
+					return;
 
 				if (color.isValid()) {
 					QMutexLocker locker(&m_sourcesMutex);
 					auto it = std::find_if(m_audioSources.begin(), m_audioSources.end(),
-							   [&sourceName](const auto &s) { return s->name == sourceName; });
+							       [&sourceName](const auto &s) {
+								       return s->name == sourceName;
+							       });
 
 					if (it != m_audioSources.end()) {
 						(*it)->color = color;
@@ -530,8 +535,6 @@ void PhaseMeterWidget::onColorButtonClicked()
 		}
 	}
 }
-
-
 
 void PhaseMeterWidget::cleanup()
 {

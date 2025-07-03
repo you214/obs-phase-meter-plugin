@@ -111,10 +111,10 @@ AlignArrayOfStructures: Right
 AlignConsecutiveAssignments: None
 AlignConsecutiveBitFields: None
 AlignConsecutiveDeclarations: None
-AlignConsecutiveMacros:
-  Enabled: true
-  AcrossEmptyLines: false
-  AcrossComments: true
+# AlignConsecutiveMacros:
+#   # Enabled: true
+#   # AcrossEmptyLines: false
+#   AcrossComments: true
 AllowShortBlocksOnASingleLine: Never
 AllowShortEnumsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: Empty
@@ -143,10 +143,10 @@ BraceWrapping:
   SplitEmptyFunction: false
   SplitEmptyRecord: false
   SplitEmptyNamespace: true
-BreakAfterAttributes: Never
-BreakArrays: false
-BreakBeforeConceptDeclarations: Allowed
-BreakBeforeInlineASMColon: OnlyMultiline
+# BreakAfterAttributes: Never
+# BreakArrays: false
+BreakBeforeConceptDeclarations: true
+# BreakBeforeInlineASMColon: OnlyMultiline
 BreakConstructorInitializers: AfterColon
 BreakInheritanceList: AfterComma
 ColumnLimit: 120
@@ -161,11 +161,11 @@ IndentCaseBlocks: false
 IndentCaseLabels: true
 IndentExternBlock: Indent
 IndentGotoLabels: false
-IndentRequiresClause: true
+# IndentRequiresClause: true
 IndentWidth: 4
 IndentWrappedFunctionNames: true
-InsertBraces: false
-InsertNewlineAtEOF: true
+# InsertBraces: false
+# InsertNewlineAtEOF: true
 KeepEmptyLinesAtTheStartOfBlocks: false
 LambdaBodyIndentation: Signature
 NamespaceIndentation: All
@@ -178,9 +178,9 @@ PPIndentWidth: -1
 PackConstructorInitializers: NextLine
 QualifierAlignment: Leave
 ReferenceAlignment: Right
-RemoveSemicolon: false
-RequiresClausePosition: WithPreceding
-RequiresExpressionIndentation: OuterScope
+# RemoveSemicolon: false
+# RequiresClausePosition: WithPreceding
+# RequiresExpressionIndentation: OuterScope
 SeparateDefinitionBlocks: Always
 ShortNamespaceLines: 1
 SortIncludes: false

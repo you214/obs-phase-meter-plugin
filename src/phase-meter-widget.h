@@ -87,8 +87,6 @@ private:
 	bool m_isDestroying;
 	bool m_needsUpdate;
 
-	
-
 	// Phase meter specific
 	static constexpr int PHASE_METER_SIZE = 200;
 	static constexpr int SAMPLE_RATE = 48000;
