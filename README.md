@@ -9,3 +9,15 @@ This plugin allows you to visualize the phase of audio in OBS.
 * You can check the phase of inputs from all audio sources.
 
 ![Image](https://github.com/user-attachments/assets/116ed954-ba84-45fa-bf37-f741bb0b736f)
+
+## how-to-build
+type below command and build files. 
+### windows
+```
+cmake --preset windows-x64
+```
+
+### macos
+```
+cmake --preset macos
+```
